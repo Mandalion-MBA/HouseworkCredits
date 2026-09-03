@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Housework Credits</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+<style>
+  :root { --accent: #4A7A5E; --bg: #F5F3EE; --card: #FFFFFF; --border: #E0DED4; --ink: #2B2B22; --muted: #857F6E; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
+  header { padding: 24px 32px; border-bottom: 1px solid var(--border); background: var(--card); }
+  h1 { margin: 0; font-size: 20px; }
+  main { max-width: 720px; margin: 0 auto; padding: 28px 20px 60px; }
+  .config { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 20px; }
+  .config label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  .config input { width: 100%; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; }
+  button.primary { background: var(--accent); color: white; border: none; padding: 11px 18px; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 600; }
+  button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .accounts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
+  .account-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; text-align: center; }
+  .account-name { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+  .account-addr { font-size: 10px; color: var(--muted); word-break: break-all; margin-bottom: 10px; }
+  .account-balance { font-size: 26px; font-weight: 700; color: var(--accent); }
+  .send-panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+  .send-panel select, .send-panel input { width: 100%; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; margin-bottom: 10px; }
+  .send-panel label { font-size: 12px; color: var(--muted); }
+  .status { font-size: 12.5px; margin-top: 10px; }
+  .status.error { color: #A83A3A; }
+  .status.ok { color: var(--accent); }
+  .history { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-top: 20px; }
+  .history-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .history-header p { margin: 0; font-size: 14px; font-weight: 600; }
+  .history .refresh-link { font-size: 11.5px; color: var(--accent); cursor: pointer; text-decoration: underline; background: none; border: none; padding: 0; font-family: inherit; }
+  .history-table-wrap { overflow-x: auto; }
+  .history table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .history th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--border); text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.3px; white-space: nowrap; }
+  .history td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .history tr:last-child td { border-bottom: none; }
+  .history .empty { color: var(--muted); text-align: center; padding: 16px; margin: 0; }
+  .history .reason-cell { max-width: 220px; word-break: break-word; }
+  .history td a { color: var(--accent); text-decoration: none; font-family: ui-monospace, Menlo, monospace; }
+  .history td a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<header><h1>🏠 Housework Credits — Mandala Testnet</h1></header>
+
+<main>
+  <div class="config">
+    <p style="margin:0 0 4px; font-size:13px; font-weight:600;">Smart contract address</p>
+    <label>Deployed contract address</label>
+    <input id="contract-address" placeholder="0x...">
+    <button class="primary" id="connect-btn" style="margin-top:12px;">Connect wallet & load</button>
+    <p class="status" id="connect-status"></p>
+  </div>
+
+  <div class="accounts" id="accounts"></div>
+
+  <div class="send-panel">
+    <p style="margin:0 0 12px; font-size:14px; font-weight:600;">Send credits</p>
+    <label>To</label>
+    <select id="to-select"></select>
+    <label>Amount</label>
+    <input id="amount-input" type="number" min="1" value="1">
+    <label>Reason</label>
+    <input id="reason-input" placeholder="e.g. Did the dishes">
+    <button class="primary" id="send-btn" disabled>Send</button>
+    <p class="status" id="send-status"></p>
+  </div>
+
+  <div class="history">
+    <div class="history-header">
+      <p>Transaction history</p>
+      <button class="refresh-link" id="refresh-history">Refresh</button>
+    </div>
+    <div id="history-content"><p class="empty">Connect your wallet to load transaction history.</p></div>
+  </div>
+</main>
+
+<script>
+const ABI = [
+  "function getAllAccounts() view returns (address[3])",
+  "function getAllBalances() view returns (uint256[3])",
+  "function nameOf(address) view returns (string)",
+  "function sendCredits(address to, uint256 amount, string reason)",
+  "event CreditsSent(address indexed from, address indexed to, uint256 amount, string reason)"
+];
+const MANDALA_TESTNET = {
+  chainId: "0x4E2B", // 20011 in hex
+  chainName: "Mandala Testnet",
+  nativeCurrency: { name: "KPGT", symbol: "KPGT", decimals: 18 },
+  rpcUrls: ["https://rpc1-testnet.mandalachain.io"],
+  blockExplorerUrls: ["https://explorer.testnet.mandalachain.io"]
+};
+
+let provider, signer, contract, accounts = [], names = [], userAddress;
+
+// Ask MetaMask to switch to the Mandala Testnet; if it doesn't know that
+// network yet, offer to add it automatically instead of dead-ending.
+async function ensureNetwork(status) {
+  const currentChainId = await window.ethereum.request({ method: "eth_chainId" });
+  if (currentChainId.toLowerCase() === MANDALA_TESTNET.chainId.toLowerCase()) return true;
+
+  status.textContent = "Switching MetaMask to Mandala Testnet — check the extension icon if no popup appears...";
+  try {
+    await window.ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: MANDALA_TESTNET.chainId }]
+    });
+    return true;
+  } catch (switchError) {
+    // 4902 = chain not added to MetaMask yet
+    if (switchError.code === 4902) {
+      try {
+        status.textContent = "Adding Mandala Testnet to MetaMask — check the extension icon if no popup appears...";
+        await window.ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [MANDALA_TESTNET]
+        });
+        return true;
+      } catch (addError) {
+        status.textContent = "Could not add Mandala Testnet to MetaMask: " + (addError.message || addError);
+        status.className = "status error";
+        return false;
+      }
+    }
+    status.textContent = "Could not switch network: " + (switchError.message || switchError);
+    status.className = "status error";
+    return false;
+  }
+}
+
+async function connect() {
+  const status = document.getElementById("connect-status");
+  const connectBtn = document.getElementById("connect-btn");
+  const addr = document.getElementById("contract-address").value.trim();
+  if (!addr) { status.textContent = "Please paste the deployed contract address first."; status.className = "status error"; return; }
+  if (!window.ethereum) { status.textContent = "MetaMask not found. Please install it."; status.className = "status error"; return; }
+
+  // Disable the button for the whole flow so repeated clicks can't queue
+  // up multiple MetaMask confirmation requests on top of each other.
+  connectBtn.disabled = true;
+  try {
+    status.textContent = "Waiting for MetaMask approval — check the extension icon if no popup appears...";
+    status.className = "status";
+    await window.ethereum.request({ method: "eth_requestAccounts" });
+
+    const switched = await ensureNetwork(status);
+    if (!switched) return;
+
+    status.textContent = "Loading accounts...";
+    provider = new ethers.BrowserProvider(window.ethereum);
+    signer = await provider.getSigner();
+    userAddress = await signer.getAddress();
+    contract = new ethers.Contract(addr, ABI, signer);
+
+    accounts = await contract.getAllAccounts();
+    names = await Promise.all(accounts.map(a => contract.nameOf(a)));
+
+    status.textContent = "Connected as " + userAddress.slice(0,6) + "..." + userAddress.slice(-4);
+    status.className = "status ok";
+    document.getElementById("send-btn").disabled = false;
+
+    populateToSelect();
+    await refreshBalances();
+    await loadHistory();
+  } catch (e) {
+    status.textContent = "Error: " + (e.info?.error?.message || e.reason || e.message || String(e));
+    status.className = "status error";
+  } finally {
+    connectBtn.disabled = false;
+  }
+}
+
+function nameFor(address) {
+  const idx = accounts.findIndex(a => a.toLowerCase() === address.toLowerCase());
+  return idx >= 0 ? (names[idx] || ("Account " + (idx + 1))) : (address.slice(0,6) + "..." + address.slice(-4));
+}
+
+// Some RPC nodes cap how many blocks a single eth_getLogs call can span
+// ("query range is too big"). Query in chunks, and if a chunk is still
+// rejected for the same reason, split it in half and retry.
+async function queryLogsChunk(filter, fromBlock, toBlock) {
+  try {
+    return await contract.queryFilter(filter, fromBlock, toBlock);
+  } catch (e) {
+    const msg = (e.shortMessage || e.info?.error?.message || e.message || "").toLowerCase();
+    const isRangeError = msg.includes("range");
+    if (isRangeError && toBlock > fromBlock) {
+      const mid = fromBlock + Math.floor((toBlock - fromBlock) / 2);
+      const [left, right] = await Promise.all([
+        queryLogsChunk(filter, fromBlock, mid),
+        queryLogsChunk(filter, mid + 1, toBlock)
+      ]);
+      return left.concat(right);
+    }
+    throw e;
+  }
+}
+
+async function loadHistory() {
+  const container = document.getElementById("history-content");
+  container.innerHTML = "<p class='empty'>Loading history from the blockchain…</p>";
+  try {
+    const filter = contract.filters.CreditsSent();
+    const latestBlock = await provider.getBlockNumber();
+    const CHUNK_SIZE = 2000;
+    const chunkPromises = [];
+    for (let fromBlock = 0; fromBlock <= latestBlock; fromBlock += CHUNK_SIZE) {
+      const toBlock = Math.min(fromBlock + CHUNK_SIZE - 1, latestBlock);
+      chunkPromises.push(queryLogsChunk(filter, fromBlock, toBlock));
+    }
+    const events = (await Promise.all(chunkPromises)).flat();
+
+    if (events.length === 0) {
+      container.innerHTML = "<p class='empty'>No transfers yet.</p>";
+      return;
+    }
+
+    // Fetch block timestamps for each event (deduplicated by block number)
+    const blockNumbers = [...new Set(events.map(e => e.blockNumber))];
+    const blocks = await Promise.all(blockNumbers.map(bn => provider.getBlock(bn)));
+    const timeByBlock = {};
+    blockNumbers.forEach((bn, i) => { timeByBlock[bn] = blocks[i].timestamp; });
+
+    const rows = events.slice().reverse().map(e => {
+      const ts = timeByBlock[e.blockNumber] * 1000;
+      const d = new Date(ts);
+      const dateStr = d.toLocaleDateString("en-GB", { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric" });
+      const timeStr = d.toLocaleTimeString("en-GB", { timeZone: "UTC", hour: "2-digit", minute: "2-digit", second: "2-digit" }) + " UTC";
+      const txHash = e.transactionHash;
+      const txShort = txHash.slice(0,8) + "..." + txHash.slice(-6);
+      const txUrl = MANDALA_TESTNET.blockExplorerUrls[0] + "/tx/" + txHash;
+      return `
+        <tr>
+          <td>${dateStr}</td>
+          <td>${timeStr}</td>
+          <td>${nameFor(e.args.from)}</td>
+          <td>${nameFor(e.args.to)}</td>
+          <td>${e.args.amount.toString()}</td>
+          <td class="reason-cell">${e.args.reason}</td>
+          <td><a href="${txUrl}" target="_blank" rel="noopener noreferrer" title="${txHash}">${txShort}</a></td>
+        </tr>`;
+    }).join("");
+
+    container.innerHTML = `
+      <div class="history-table-wrap">
+        <table>
+          <thead>
+            <tr><th>Date</th><th>UTC time</th><th>From</th><th>To</th><th>Amount</th><th>Reason</th><th>Tx hash</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  } catch (e) {
+    container.innerHTML = "<p class='empty'>Could not load history: " + (e.reason || e.message) + "</p>";
+  }
+}
+
+function populateToSelect() {
+  const sel = document.getElementById("to-select");
+  sel.innerHTML = "";
+  accounts.forEach((a, i) => {
+    const opt = document.createElement("option");
+    opt.value = a;
+    opt.textContent = (names[i] || ("Account " + (i+1))) + " (" + a.slice(0,6) + "...)";
+    sel.appendChild(opt);
+  });
+}
+
+async function refreshBalances() {
+  const balances = await contract.getAllBalances();
+  const el = document.getElementById("accounts");
+  el.innerHTML = "";
+  accounts.forEach((a, i) => {
+    const card = document.createElement("div");
+    card.className = "account-card";
+    card.innerHTML = `
+      <div class="account-name">${names[i] || "Account " + (i+1)}</div>
+      <div class="account-addr">${a}</div>
+      <div class="account-balance">${balances[i].toString()}</div>
+    `;
+    el.appendChild(card);
+  });
+}
+
+async function send() {
+  const status = document.getElementById("send-status");
+  const sendBtn = document.getElementById("send-btn");
+  const to = document.getElementById("to-select").value;
+  const amount = document.getElementById("amount-input").value;
+  const reason = document.getElementById("reason-input").value || "No reason given";
+
+  // Disable the button for the whole flow so repeated clicks can't queue
+  // up multiple MetaMask confirmation requests on top of each other.
+  sendBtn.disabled = true;
+  status.textContent = "Waiting for MetaMask approval — check the extension icon if no popup appears...";
+  status.className = "status";
+  try {
+    const tx = await contract.sendCredits(to, amount, reason);
+    status.textContent = "Transaction sent, waiting for confirmation on-chain...";
+    await tx.wait();
+    status.textContent = "Sent! Tx: " + tx.hash.slice(0,10) + "...";
+    status.className = "status ok";
+    await refreshBalances();
+    await loadHistory();
+  } catch (e) {
+    status.textContent = "Error: " + (e.info?.error?.message || e.reason || e.message || String(e));
+    status.className = "status error";
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+document.getElementById("connect-btn").onclick = connect;
+document.getElementById("send-btn").onclick = send;
+document.getElementById("refresh-history").onclick = () => { if (contract) loadHistory(); };
+</script>
+</body>
+</html>
