@@ -5,8 +5,7 @@ family accounts (Mom, Dad, Kid) can send each other credits for chores completed
 ("Tidy bathroom", "Did the dishes", ...), tracked entirely on a custom EVM testnet
 called **Mandala Testnet**.
 
-Live deployment: https://spontaneous-muffin-d0f871.netlify.app/
-
+Live deployment: https://agent-6a981906dc73278--spontaneous-muffin-d0f871.netlify.app/
 ## Handover documentation
 
 This repository was prepared for handover. Start here:
