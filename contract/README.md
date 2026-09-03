@@ -1,57 +1,46 @@
-# Housework Credits
+# Smart contract
 
-A tiny web3 dApp that turns household chores into an on-chain "credits" ledger. Three
-family accounts (Mom, Dad, Kid) can send each other credits for chores completed
-("Tidy bathroom", "Did the dishes", ...), tracked entirely on a custom EVM testnet
-called **Mandala Testnet**.
+## ⚠️ Source code not available
 
-Live deployment: https://spontaneous-muffin-d0f871.netlify.app/
+At the time of this handover, the Solidity source code (`.sol`) for the
+deployed contract could not be located — only its **ABI** (the public
+interface the frontend calls) was recoverable, by reading the calls made in
+`frontend/index.html`. This is listed as the top-priority open item in
+`../docs/HANDOVER.md`.
 
-## Handover documentation
+`ABI.json` in this folder is that reconstructed interface — enough to *call*
+the contract, but not to see, audit, redeploy, or modify its internal logic
+(access control, overflow handling, ownership, etc.).
 
-This repository was prepared for handover. Start here:
+## What we know from the ABI alone
 
-| Doc | Contents |
-|---|---|
-| [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md) | Architecture diagram, components, on-chain data model (no off-chain DB) |
-| [`docs/TECH_STACK.md`](docs/TECH_STACK.md) | Languages, frameworks, libraries, hosting |
-| [`docs/USER_FLOW.md`](docs/USER_FLOW.md) | Flowchart of the app journey + sequence diagram of a credit transfer |
-| [`docs/HANDOVER.md`](docs/HANDOVER.md) | What was fixed, what's still open, known bugs, missing pieces |
-| [`docs/MAINNET_MIGRATION.md`](docs/MAINNET_MIGRATION.md) | How to move the app from Mandala Testnet to Mandala Mainnet |
-
-## Repository layout
-
-```
-housework-credits/
-├── README.md                 ← you are here
-├── docs/
-│   ├── SYSTEM_DESIGN.md
-│   ├── TECH_STACK.md
-│   ├── USER_FLOW.md
-│   └── HANDOVER.md
-├── frontend/
-│   └── index.html            ← the entire app (HTML + CSS + JS, single file)
-└── contract/
-    └── ABI.json              ← contract interface as used by the frontend
-                                 (⚠ .sol source not available — see HANDOVER.md)
+```solidity
+function getAllAccounts() view returns (address[3])
+function getAllBalances() view returns (uint256[3])
+function nameOf(address) view returns (string)
+function sendCredits(address to, uint256 amount, string reason)
+event CreditsSent(address indexed from, address indexed to, uint256 amount, string reason)
 ```
 
-## Quick start (running it yourself)
+- Exactly **3 hardcoded accounts** (fixed-size `address[3]` return type — not a
+  dynamic array), each with a human-readable name and an integer balance.
+- `sendCredits` takes no `from` parameter — the sender is implicitly
+  `msg.sender`, meaning the connected wallet's account.
+- No ERC-20 interface (`transfer`, `approve`, `balanceOf`, `decimals`, ...) —
+  this is a bespoke ledger, not a standard token (see `../docs/SYSTEM_DESIGN.md`).
+- No visible way to add/remove accounts or change names from outside the
+  contract — likely set once in the constructor.
 
-1. Deploy (or obtain the address of) the "Housework Credits" smart contract on
-   Mandala Testnet.
-2. Serve `frontend/index.html` over **http(s)**, not `file://` (MetaMask's
-   internal messaging breaks on `file://` origins — see `docs/HANDOVER.md`).
-   - Locally: any static server, e.g. `python -m http.server 8000`.
-   - Or deploy the file as `index.html` to a static host (Netlify, GitHub
-     Pages, Vercel, ...).
-3. Open the page, paste the deployed contract address, click **Connect wallet
-   & load** (requires the MetaMask browser extension).
-4. Approve the connection and, if prompted, let the app switch/add the
-   Mandala Testnet network in MetaMask.
-5. Pick a recipient, an amount, a reason, and click **Send**.
+## Recommended next step
 
-Each of the three wallet accounts needs its own small balance of **KPGT**
-(the testnet's native gas currency) to pay transaction fees — KPGT is
-unrelated to the "credits" themselves. See `docs/SYSTEM_DESIGN.md` for the
-distinction.
+Whoever deployed the contract (or has access to the deployment transaction on
+`https://explorer.testnet.mandalachain.io`) should retrieve the original
+source and either:
+1. Verify it on the block explorer (if supported), which publishes the source
+   permanently and publicly, or
+2. Add the `.sol` file directly into this folder.
+
+Until then, treat the contract as a black box: its authorization rules (can
+anyone call `sendCredits` for any `to`, or only for accounts they own?) and
+edge-case behavior (what happens if `amount` exceeds the sender's balance?)
+are unverified.
